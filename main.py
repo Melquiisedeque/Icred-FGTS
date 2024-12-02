@@ -1,6 +1,6 @@
 import os
 import requests
-import json  # Certifique-se de que esta linha esteja presente
+import json  # Import necessário
 from flask import Flask, request, jsonify
 from datetime import datetime, timedelta
 import logging
