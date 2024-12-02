@@ -9,9 +9,8 @@ logging.basicConfig(level=logging.INFO)
 
 TOKEN_FILE = "token.json"
 
-
+# Função para gerar e salvar o token
 def generate_and_save_token():
-    """Gera um novo token e salva em arquivo."""
     api_url = "https://api-hml.icred.app/authorization-server/oauth2/token"
     client_id = "sb-integration"
     client_secret = "6698c059-3092-41d1-a218-5f03b5d1e37f"
@@ -38,8 +37,8 @@ def generate_and_save_token():
         raise Exception(f"Erro ao gerar o token: {response.status_code} - {response.text}")
 
 
+# Função para carregar o token
 def load_token():
-    """Carrega o token do arquivo e verifica validade."""
     try:
         with open(TOKEN_FILE, "r") as token_file:
             token_data = json.load(token_file)
@@ -63,12 +62,11 @@ def simulation():
         cpf = data.get("cpf")
         birthdate = data.get("birthdate")
         phone = data.get("phone")
-        webhook = data.get("webhook")
 
-        if not all([cpf, birthdate, phone, webhook]):
+        if not all([cpf, birthdate, phone]):
             return jsonify({"error": "Faltam dados obrigatórios"}), 400
 
-        logging.info(f"Dados recebidos: CPF={cpf}, Birthdate={birthdate}, Phone={phone}, Webhook={webhook}")
+        logging.info(f"Dados recebidos: CPF={cpf}, Birthdate={birthdate}, Phone={phone}")
 
         token = load_token()
 
@@ -93,17 +91,11 @@ def simulation():
             simulation_data = response.json()
             logging.info("Simulação criada com sucesso.")
 
-            # Enviar os dados para o webhook
-            webhook_response = requests.post(webhook, json=simulation_data)
-            if webhook_response.status_code == 200:
-                logging.info("Dados enviados com sucesso ao webhook.")
-            else:
-                logging.error(f"Erro ao enviar para o webhook: {webhook_response.status_code} - {webhook_response.text}")
-
+            # Retorna os dados diretamente ao BotConversa
             return jsonify(simulation_data)
         else:
             logging.error(f"Erro ao realizar a simulação: {response.status_code} - {response.text}")
-            return jsonify({"error": "Erro na simulação"}), response.status_code
+            return jsonify({"error": "Erro na simulação", "details": response.json()}), response.status_code
 
     except Exception as e:
         logging.error(f"Erro: {str(e)}")
@@ -111,12 +103,5 @@ def simulation():
 
 
 if __name__ == "__main__":
-    # Verifica se está rodando no Railway
-    railway_url = os.environ.get("RAILWAY_STATIC_URL")
-    if railway_url:
-        logging.info(f"Aplicação rodando em produção: {railway_url}")
-    else:
-        logging.info("Aplicação rodando em desenvolvimento.")
-
-    port = int(os.environ.get("PORT", 5001))
+    port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
