@@ -1,41 +1,53 @@
 import os
 import requests
-import json  # Import necessário
+import json
 from flask import Flask, request, jsonify
 from datetime import datetime, timedelta
 import logging
 
-app = Flask(__name__)
+# Configuração de logging
 logging.basicConfig(level=logging.INFO)
+
+app = Flask(__name__)
 
 TOKEN_FILE = "token.json"
 
 # Função para gerar e salvar o token
 def generate_and_save_token():
-    api_url = "https://api-hml.icred.app/authorization-server/oauth2/token"
-    client_id = "sb-integration"
-    client_secret = "6698c059-3092-41d1-a218-5f03b5d1e37f"
-    grant_type = "client_credentials"
-    scope = "default fgts"
+    try:
+        api_url = "https://api-hml.icred.app/authorization-server/oauth2/token"
+        client_id = "sb-integration"
+        client_secret = "6698c059-3092-41d1-a218-5f03b5d1e37f"
+        grant_type = "client_credentials"
+        scope = "default fgts"
 
-    headers = {
-        "Authorization": f"Basic {requests.auth._basic_auth_str(client_id, client_secret)}",
-        "Content-Type": "application/x-www-form-urlencoded",
-    }
-    payload = {"grant_type": grant_type, "scope": scope}
+        headers = {
+            "Authorization": f"Basic {requests.auth._basic_auth_str(client_id, client_secret)}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
 
-    response = requests.post(api_url, headers=headers, data=payload)
-    if response.status_code == 200:
-        token_data = response.json()
-        token_data["generated_at"] = datetime.now().isoformat()
+        payload = {
+            "grant_type": grant_type,
+            "scope": scope,
+        }
 
-        with open(TOKEN_FILE, "w") as token_file:
-            json.dump(token_data, token_file, indent=4)
+        response = requests.post(api_url, headers=headers, data=payload)
+        if response.status_code == 200:
+            token_data = response.json()
+            token_data["generated_at"] = datetime.now().isoformat()
 
-        logging.info("Token gerado e salvo com sucesso.")
-        return token_data["access_token"]
-    else:
-        raise Exception(f"Erro ao gerar o token: {response.status_code} - {response.text}")
+            # Salvar o token em um arquivo local
+            with open(TOKEN_FILE, "w") as token_file:
+                json.dump(token_data, token_file, indent=4)
+
+            logging.info("Token gerado e salvo com sucesso.")
+            return token_data["access_token"]
+        else:
+            logging.error(f"Erro ao gerar o token: {response.status_code} - {response.text}")
+            raise Exception(f"Erro ao gerar o token: {response.status_code} - {response.text}")
+    except Exception as e:
+        logging.error(f"Erro ao gerar o token: {str(e)}")
+        raise
 
 
 # Função para carregar o token
@@ -59,6 +71,7 @@ def load_token():
 @app.route("/simulation", methods=["POST"])
 def simulation():
     try:
+        # Receber dados do BotConversa
         data = request.json
         cpf = data.get("cpf")
         birthdate = data.get("birthdate")
@@ -91,9 +104,7 @@ def simulation():
         if response.status_code == 200:
             simulation_data = response.json()
             logging.info("Simulação criada com sucesso.")
-
-            # Retorna os dados diretamente ao BotConversa
-            return jsonify(simulation_data)
+            return jsonify(simulation_data)  # Retorna os dados da simulação diretamente
         else:
             logging.error(f"Erro ao realizar a simulação: {response.status_code} - {response.text}")
             return jsonify({"error": "Erro na simulação", "details": response.json()}), response.status_code
