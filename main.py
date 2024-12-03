@@ -1,6 +1,6 @@
 import os
 import time
-import json  # Corrigido: Adicionado o módulo json
+import json
 import requests
 from flask import Flask, request, jsonify
 
@@ -58,7 +58,7 @@ def simulation():
         data = request.json
         cpf = data.get("cpf")
         birthdate = data.get("birthdate")
-        phone = data.get("phone")
+        phone = str(data.get("phone"))  # Garantindo que o telefone é tratado como string
 
         if not all([cpf, birthdate, phone]):
             return jsonify({"error": "Dados insuficientes para realizar a simulação."}), 400
@@ -79,7 +79,7 @@ def simulation():
             "creditorId": -3,
             "phone": {
                 "areaCode": phone[:2],
-                "number": phone[2:],
+                "number": phone[2:],  # Extração correta do telefone como string
                 "countryCode": "55",
             },
         }
