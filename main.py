@@ -25,6 +25,11 @@ def generate_token():
             "grant_type": GRANT_TYPE,
             "scope": SCOPE,
         }
+
+        app.logger.info(f"Enviando requisição para gerar token...")
+        app.logger.debug(f"Headers: {headers}")
+        app.logger.debug(f"Payload: {data}")
+
         response = requests.post(TOKEN_URL, headers=headers, data=data)
         if response.status_code == 200:
             token_data = response.json()
@@ -38,6 +43,7 @@ def generate_token():
     except Exception as e:
         app.logger.error(f"Erro na requisição de token: {str(e)}")
         return None
+
 
 
 def commit_and_push_to_github():
