@@ -1,5 +1,6 @@
 import os
 import time
+import json  # Corrigido: Adicionado o módulo json
 import requests
 from flask import Flask, request, jsonify
 
@@ -28,7 +29,7 @@ def generate_token():
         token_data = response.json()
         token_data["generated_at"] = time.time()
         with open(TOKEN_FILE, "w") as token_file:
-            token_file.write(json.dumps(token_data, indent=4))
+            json.dump(token_data, token_file, indent=4)
         return token_data["access_token"]
     else:
         raise Exception(f"Erro ao gerar o token: {response.status_code} - {response.text}")
@@ -53,41 +54,41 @@ def get_token():
 @app.route("/simulation", methods=["POST"])
 def simulation():
     """Endpoint para receber dados e realizar a simulação."""
-    data = request.json
-    cpf = data.get("cpf")
-    birthdate = data.get("birthdate")
-    phone = data.get("phone")
-
-    if not all([cpf, birthdate, phone]):
-        return jsonify({"error": "Dados insuficientes para realizar a simulação."}), 400
-
-    token = get_token()
-
-    simulation_url = "https://api-hml.icred.app/fgts/v1/max-simulation"
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "personCode": cpf,
-        "birthdate": birthdate,
-        "numberOfInstallments": 12,
-        "productIds": [20],
-        "sellerPersonCode": cpf,
-        "creditorId": -3,
-        "phone": {
-            "areaCode": phone[:2],
-            "number": phone[2:],
-            "countryCode": "55",
-        },
-    }
-
     try:
+        data = request.json
+        cpf = data.get("cpf")
+        birthdate = data.get("birthdate")
+        phone = data.get("phone")
+
+        if not all([cpf, birthdate, phone]):
+            return jsonify({"error": "Dados insuficientes para realizar a simulação."}), 400
+
+        token = get_token()
+
+        simulation_url = "https://api-hml.icred.app/fgts/v1/max-simulation"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "personCode": cpf,
+            "birthdate": birthdate,
+            "numberOfInstallments": 12,
+            "productIds": [20],
+            "sellerPersonCode": cpf,
+            "creditorId": -3,
+            "phone": {
+                "areaCode": phone[:2],
+                "number": phone[2:],
+                "countryCode": "55",
+            },
+        }
+
         response = requests.post(simulation_url, headers=headers, json=payload)
         if response.status_code == 200:
             simulation_data = response.json()
             requests.post(WEBHOOK_URL, json=simulation_data)
-            return jsonify({"message": "Simulação realizada com sucesso!"}), 200
+            return jsonify({"message": "Simulação realizada com sucesso!", "simulation": simulation_data}), 200
         else:
             return jsonify({"error": f"Erro na simulação: {response.status_code}", "details": response.text}), 400
     except Exception as e:
