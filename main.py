@@ -1,118 +1,106 @@
 from flask import Flask, request, jsonify
 import requests
-from datetime import datetime, timedelta
+import time
 import logging
+import os
 
 app = Flask(__name__)
 logging.basicConfig(level=logging.INFO)
 
-TOKEN_FILE = "token.json"
+TOKEN_URL = "https://api-hml.icred.app/authorization-server/oauth2/token"
+SIMULATION_URL = "https://api-hml.icred.app/fgts/v1/max-simulation"
+WEBHOOK_URL = "https://new-backend.botconversa.com.br/api/v1/webhooks-automation/catch/136922/DcB0aQaTyUe4/"
 
-# Função para gerar e salvar o token
-def generate_and_save_token():
-    api_url = "https://api-hml.icred.app/authorization-server/oauth2/token"
-    client_id = "sb-integration"
-    client_secret = "6698c059-3092-41d1-a218-5f03b5d1e37f"
-    grant_type = "client_credentials"
-    scope = "default fgts"
+CLIENT_ID = "sb-integration"
+CLIENT_SECRET = "6698c059-3092-41d1-a218-5f03b5d1e37f"
+SCOPE = "default fgts"
+GRANT_TYPE = "client_credentials"
 
+# Token global para reutilização
+global_token = None
+
+# Função para obter ou atualizar o token
+def get_token():
+    global global_token
+    if global_token is None:
+        response = requests.post(
+            TOKEN_URL,
+            headers={
+                "Authorization": f"Basic {requests.auth._basic_auth_str(CLIENT_ID, CLIENT_SECRET)}",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            data={"grant_type": GRANT_TYPE, "scope": SCOPE},
+        )
+        if response.status_code == 200:
+            global_token = response.json()["access_token"]
+            logging.info("Token gerado com sucesso.")
+        else:
+            logging.error(f"Erro ao gerar o token: {response.status_code} - {response.text}")
+            raise Exception("Não foi possível gerar o token.")
+    return global_token
+
+# Função para processar a simulação
+def process_simulation(cpf, birthdate, phone):
+    token = get_token()
     headers = {
-        "Authorization": f"Basic {requests.auth._basic_auth_str(client_id, client_secret)}",
-        "Content-Type": "application/x-www-form-urlencoded",
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
     }
     payload = {
-        "grant_type": grant_type,
-        "scope": scope,
+        "personCode": cpf,
+        "birthdate": birthdate,
+        "numberOfInstallments": 12,
+        "productIds": [20],
+        "sellerPersonCode": cpf,
+        "creditorId": -3,
+        "phone": {
+            "areaCode": phone[:2],
+            "number": phone[2:],
+            "countryCode": "55",
+        },
     }
 
-    response = requests.post(api_url, headers=headers, data=payload)
+    logging.info("Enviando requisição de simulação...")
+    response = requests.post(SIMULATION_URL, json=payload, headers=headers)
+
     if response.status_code == 200:
-        token_data = response.json()
-        token_data["generated_at"] = datetime.now().isoformat()
-
-        with open(TOKEN_FILE, "w") as token_file:
-            json.dump(token_data, token_file, indent=4)
-        return token_data["access_token"]
+        simulation_data = response.json()
+        logging.info(f"Simulação realizada com sucesso: {simulation_data}")
+        return simulation_data
     else:
-        raise Exception(f"Erro ao gerar o token: {response.status_code} - {response.text}")
+        logging.error(f"Erro ao realizar a simulação: {response.status_code} - {response.text}")
+        raise Exception("Erro ao realizar a simulação.")
 
-
-# Função para carregar o token
-def load_token():
-    try:
-        with open(TOKEN_FILE, "r") as token_file:
-            token_data = json.load(token_file)
-        generated_at = datetime.fromisoformat(token_data["generated_at"])
-        expires_in = timedelta(seconds=token_data["expires_in"])
-        if datetime.now() > generated_at + expires_in:
-            return generate_and_save_token()
-        return token_data["access_token"]
-    except (FileNotFoundError, KeyError):
-        return generate_and_save_token()
-
-
-# Rota principal para simulação
+# Rota para receber os dados
 @app.route("/simulation", methods=["POST"])
 def simulation():
     try:
         data = request.json
-        cpf = data["cpf"]
-        birthdate = data["birthdate"]
-        phone = data["phone"]
-        webhook = data["webhook"]
+        cpf = data.get("cpf")
+        birthdate = data.get("birthdate")
+        phone = data.get("phone")
+
+        if not all([cpf, birthdate, phone]):
+            return jsonify({"status": "error", "message": "Dados incompletos"}), 400
 
         logging.info(f"Dados recebidos: CPF={cpf}, Birthdate={birthdate}, Phone={phone}")
 
-        # Carregar token
-        token = load_token()
+        # Tentar obter a simulação por até 10 tentativas
+        for attempt in range(10):
+            try:
+                simulation_data = process_simulation(cpf, birthdate, phone)
+                return jsonify(simulation_data), 200
+            except Exception as e:
+                logging.warning(f"Tentativa {attempt + 1} falhou: {e}")
+                time.sleep(10)  # Aguardar 10 segundos antes de tentar novamente
 
-        # Configurar requisição de simulação
-        simulation_url = "https://api-hml.icred.app/fgts/v1/max-simulation"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "personCode": cpf,
-            "birthdate": birthdate,
-            "numberOfInstallments": 12,
-            "productIds": [20],
-            "sellerPersonCode": cpf,
-            "creditorId": -3,
-            "phone": {
-                "areaCode": phone[2:4],
-                "number": phone[4:],
-                "countryCode": phone[:2]
-            }
-        }
+        return jsonify({"status": "error", "message": "Simulação falhou após várias tentativas"}), 500
 
-        # Fazer a requisição de simulação
-        response = requests.post(simulation_url, headers=headers, json=payload)
-        if response.status_code == 200:
-            simulation_result = response.json()
-            logging.info(f"Simulação realizada com sucesso: {simulation_result}")
-
-            # Enviar dados ao webhook
-            webhook_payload = {
-                "status": "success",
-                "cpf": cpf,
-                "result": simulation_result
-            }
-            webhook_response = requests.post(webhook, json=webhook_payload)
-            if webhook_response.status_code == 200:
-                logging.info("Dados enviados ao webhook com sucesso.")
-                return jsonify({"status": "success", "message": "Simulação realizada e enviada ao webhook."}), 200
-            else:
-                logging.error(f"Erro ao enviar dados ao webhook: {webhook_response.status_code} - {webhook_response.text}")
-                return jsonify({"status": "error", "message": "Erro ao enviar dados ao webhook."}), 500
-        else:
-            logging.error(f"Erro ao realizar a simulação: {response.status_code} - {response.text}")
-            return jsonify({"status": "error", "message": "Erro ao realizar a simulação.", "details": response.text}), 500
     except Exception as e:
-        logging.error(f"Erro: {str(e)}")
+        logging.error(f"Erro: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
 if __name__ == "__main__":
-    logging.info("Inicializando o servidor Flask.")
-    app.run(host="0.0.0.0", port=5001)
+    port = int(os.environ.get("PORT", 5001))
+    app.run(host="0.0.0.0", port=port)
