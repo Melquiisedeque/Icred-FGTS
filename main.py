@@ -4,7 +4,6 @@ import json
 from datetime import datetime, timedelta
 import os
 import logging
-import time
 
 app = Flask(__name__)
 
@@ -27,29 +26,39 @@ def generate_and_save_token():
     grant_type = "client_credentials"
     scope = "default fgts"
 
+    # Cabeçalhos de autenticação
     headers = {
         "Authorization": f"Basic {requests.auth._basic_auth_str(client_id, client_secret)}",
         "Content-Type": "application/x-www-form-urlencoded",
     }
 
+    # Corpo da requisição
     payload = {
         "grant_type": grant_type,
         "scope": scope,
     }
 
-    response = requests.post(api_url, headers=headers, data=payload)
-    if response.status_code == 200:
-        token_data = response.json()
-        token_data["generated_at"] = datetime.now().isoformat()
+    try:
+        response = requests.post(api_url, headers=headers, data=payload)
+        logging.info(f"Requisição de token enviada. Status Code: {response.status_code}")
+        logging.debug(f"Headers: {headers}")
+        logging.debug(f"Payload: {payload}")
 
-        with open(TOKEN_FILE, "w") as token_file:
-            json.dump(token_data, token_file, indent=4)
+        if response.status_code == 200:
+            token_data = response.json()
+            token_data["generated_at"] = datetime.now().isoformat()
 
-        logging.info("Token gerado e salvo com sucesso.")
-        return token_data["access_token"]
-    else:
-        logging.error(f"Erro ao gerar o token: {response.status_code} - {response.text}")
-        raise Exception("Não foi possível gerar o token.")
+            with open(TOKEN_FILE, "w") as token_file:
+                json.dump(token_data, token_file, indent=4)
+
+            logging.info("Token gerado e salvo com sucesso.")
+            return token_data["access_token"]
+        else:
+            logging.error(f"Erro ao gerar o token: {response.status_code} - {response.text}")
+            raise Exception("Não foi possível gerar o token.")
+    except Exception as e:
+        logging.error(f"Erro na geração do token: {str(e)}")
+        raise
 
 
 def load_token():
@@ -69,18 +78,6 @@ def load_token():
     except (FileNotFoundError, KeyError):
         logging.warning("Token não encontrado ou inválido. Gerando um novo...")
         return generate_and_save_token()
-
-
-def send_to_webhook(data):
-    """Envia os dados para o webhook."""
-    try:
-        response = requests.post(WEBHOOK_URL, json=data, timeout=10)
-        if response.status_code == 200:
-            logging.info("Dados enviados com sucesso ao webhook.")
-        else:
-            logging.error(f"Erro ao enviar os dados ao webhook: {response.status_code} - {response.text}")
-    except Exception as e:
-        logging.error(f"Erro ao tentar enviar os dados ao webhook: {str(e)}")
 
 
 @app.route("/simulation", methods=["POST"])
@@ -119,10 +116,13 @@ def simulation():
         }
 
         response = requests.post(simulation_url, headers=headers, json=payload)
+        logging.info(f"Requisição de simulação enviada. Status Code: {response.status_code}")
+        logging.debug(f"Headers: {headers}")
+        logging.debug(f"Payload: {payload}")
+
         if response.status_code == 200:
             simulation_data = response.json()
             logging.info("Simulação realizada com sucesso.")
-            send_to_webhook(simulation_data)  # Envia os dados ao webhook
             return jsonify({"status": "success", "data": simulation_data})
         else:
             logging.error(f"Erro ao realizar a simulação: {response.status_code} - {response.text}")
