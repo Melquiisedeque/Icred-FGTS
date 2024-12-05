@@ -1,28 +1,35 @@
-from flask import Flask, request, jsonify
+import os
 import requests
 import json
-from datetime import datetime, timedelta
-import os
 import logging
+from datetime import datetime, timedelta
+from flask import Flask, request, jsonify
+import time
 
 app = Flask(__name__)
 
-# Configuração do log
+# Configuração de logging
 logging.basicConfig(level=logging.INFO)
 
-# Caminho do arquivo token.json
+# Arquivo para salvar o token
 TOKEN_FILE = "token.json"
 
-# URL do webhook final
-WEBHOOK_URL = "https://new-backend.botconversa.com.br/api/v1/webhooks-automation/catch/136922/DcB0aQaTyUe4/"
+def test_token_validity(token):
+    """Testa se o token atual é válido."""
+    api_url = "https://api-hml.icred.app/authorization-server/oauth2/token-info"
+    headers = {"Authorization": f"Bearer {token}"}
 
-
-def validate_token_parameters(client_id, client_secret, scope):
-    """Valida os parâmetros antes de enviar para a API."""
-    if not client_id or not client_secret or not scope:
-        logging.error("Parâmetros de autenticação inválidos.")
-        raise ValueError("Credenciais de API ou escopo inválidos.")
-
+    try:
+        response = requests.get(api_url, headers=headers)
+        if response.status_code == 200:
+            logging.info("Token válido confirmado.")
+            return True
+        else:
+            logging.warning(f"Token inválido. Código de status: {response.status_code}")
+            return False
+    except Exception as e:
+        logging.error(f"Erro ao testar o token: {str(e)}")
+        return False
 
 def generate_and_save_token():
     """Gera um novo token e salva no arquivo."""
@@ -33,119 +40,85 @@ def generate_and_save_token():
     grant_type = "client_credentials"
     scope = "default fgts"
 
-    # Validar parâmetros antes de usar
-    try:
-        validate_token_parameters(client_id, client_secret, scope)
-    except ValueError as e:
-        logging.error(f"Erro de validação: {str(e)}")
-        raise
-
-    # Cabeçalhos de autenticação
     headers = {
         "Authorization": f"Basic {requests.auth._basic_auth_str(client_id, client_secret)}",
         "Content-Type": "application/x-www-form-urlencoded",
     }
 
-    # Corpo da requisição
-    payload = {
-        "grant_type": grant_type,
-        "scope": scope,
-    }
+    payload = {"grant_type": grant_type, "scope": scope}
 
     try:
         response = requests.post(api_url, headers=headers, data=payload)
         logging.info(f"Requisição de token enviada. Código de status: {response.status_code}")
-        logging.debug(f"Headers: {headers}")
-        logging.debug(f"Payload: {payload}")
-
         if response.status_code == 200:
             token_data = response.json()
             token_data["generated_at"] = datetime.now().isoformat()
-
             with open(TOKEN_FILE, "w") as token_file:
                 json.dump(token_data, token_file, indent=4)
-
-            logging.info("Token gerado e salvo com sucesso.")
+            logging.info("Novo token gerado e salvo.")
             return token_data["access_token"]
         else:
             logging.error(f"Erro ao gerar o token: {response.status_code} - {response.text}")
-            raise Exception("Não foi possível gerar o token.")
+            return None
     except Exception as e:
-        logging.error(f"Erro na geração do token: {str(e)}")
-        raise
+        logging.error(f"Erro ao tentar gerar o token: {str(e)}")
+        return None
 
-
-def load_token():
-    """Carrega o token do arquivo e verifica validade."""
+def load_or_generate_token():
+    """Carrega o token do arquivo ou gera um novo."""
     try:
         with open(TOKEN_FILE, "r") as token_file:
             token_data = json.load(token_file)
+            token = token_data.get("access_token")
+            if test_token_validity(token):
+                return token
+        logging.info("Token expirado ou inválido. Tentando gerar um novo token...")
+    except FileNotFoundError:
+        logging.info("Arquivo de token não encontrado. Tentando gerar um novo token...")
 
-        generated_at = datetime.fromisoformat(token_data["generated_at"])
-        expires_in = timedelta(seconds=token_data["expires_in"])
-
-        if datetime.now() > generated_at + expires_in:
-            logging.info("Token expirado. Gerando um novo...")
-            return generate_and_save_token()
-
-        return token_data["access_token"]
-    except (FileNotFoundError, KeyError):
-        logging.warning("Token não encontrado ou inválido. Gerando um novo...")
-        return generate_and_save_token()
-
+    # Tentativa múltipla de gerar um novo token
+    for attempt in range(10):
+        logging.info(f"Tentativa {attempt + 1} para gerar o token.")
+        token = generate_and_save_token()
+        if token and test_token_validity(token):
+            return token
+        logging.warning(f"Tentativa {attempt + 1} falhou.")
+        time.sleep(5)  # Aguarda 5 segundos entre as tentativas
+    logging.error("Falha ao gerar um token válido após 10 tentativas.")
+    return None
 
 @app.route("/simulation", methods=["POST"])
 def simulation():
-    """Endpoint principal para processar a simulação."""
+    """Rota para iniciar a simulação."""
     try:
-        # Recebe os dados enviados
-        data = request.json
-        cpf = data.get("cpf")
-        birthdate = data.get("birthdate")
-        phone = data.get("phone")
+        data = request.get_json()
+        cpf = data["cpf"]
+        birthdate = data["birthdate"]
+        phone = data["phone"]
 
         logging.info(f"Dados recebidos: CPF={cpf}, Data de Nascimento={birthdate}, Telefone={phone}")
 
-        # Carrega ou gera o token
-        token = load_token()
+        token = load_or_generate_token()
+        if not token:
+            return jsonify({"status": "error", "message": "Não foi possível gerar um token válido."}), 500
 
-        # Envia a simulação
-        simulation_url = "https://api-hml.icred.app/fgts/v1/max-simulation"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "personCode": cpf,
+        # Aqui você inicia a lógica da simulação usando o token
+        simulation_data = {
+            "cpf": cpf,
             "birthdate": birthdate,
-            "numberOfInstallments": 12,
-            "productIds": [20],
-            "sellerPersonCode": cpf,
-            "creditorId": -3,
-            "phone": {
-                "areaCode": phone[:2],
-                "number": phone[2:],
-                "countryCode": "55",
-            },
+            "phone": phone
         }
+        logging.info(f"Iniciando simulação com os dados: {simulation_data}")
 
-        response = requests.post(simulation_url, headers=headers, json=payload)
-        logging.info(f"Requisição de simulação enviada. Código de status: {response.status_code}")
-        logging.debug(f"Headers: {headers}")
-        logging.debug(f"Payload: {payload}")
+        # Lógica simulada de sucesso
+        return jsonify({"status": "success", "simulation": simulation_data}), 200
 
-        if response.status_code == 200:
-            simulation_data = response.json()
-            logging.info("Simulação realizada com sucesso.")
-            return jsonify({"status": "success", "data": simulation_data})
-        else:
-            logging.error(f"Erro ao realizar a simulação: {response.status_code} - {response.text}")
-            return jsonify({"status": "error", "message": "Erro ao realizar a simulação."}), 500
-
+    except KeyError as e:
+        logging.error(f"Erro: Faltando chave no corpo da requisição: {str(e)}")
+        return jsonify({"status": "error", "message": f"Chave ausente: {str(e)}"}), 400
     except Exception as e:
-        logging.error(f"Erro: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
-
+        logging.error(f"Erro na simulação: {str(e)}")
+        return jsonify({"status": "error", "message": "Erro interno no servidor."}), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5001)))
