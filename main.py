@@ -17,6 +17,13 @@ TOKEN_FILE = "token.json"
 WEBHOOK_URL = "https://new-backend.botconversa.com.br/api/v1/webhooks-automation/catch/136922/DcB0aQaTyUe4/"
 
 
+def validate_token_parameters(client_id, client_secret, scope):
+    """Valida os parâmetros antes de enviar para a API."""
+    if not client_id or not client_secret or not scope:
+        logging.error("Parâmetros de autenticação inválidos.")
+        raise ValueError("Credenciais de API ou escopo inválidos.")
+
+
 def generate_and_save_token():
     """Gera um novo token e salva no arquivo."""
     logging.info("Gerando um novo token...")
@@ -25,6 +32,13 @@ def generate_and_save_token():
     client_secret = "6698c059-3092-41d1-a218-5f03b5d1e37f"
     grant_type = "client_credentials"
     scope = "default fgts"
+
+    # Validar parâmetros antes de usar
+    try:
+        validate_token_parameters(client_id, client_secret, scope)
+    except ValueError as e:
+        logging.error(f"Erro de validação: {str(e)}")
+        raise
 
     # Cabeçalhos de autenticação
     headers = {
@@ -40,7 +54,7 @@ def generate_and_save_token():
 
     try:
         response = requests.post(api_url, headers=headers, data=payload)
-        logging.info(f"Requisição de token enviada. Status Code: {response.status_code}")
+        logging.info(f"Requisição de token enviada. Código de status: {response.status_code}")
         logging.debug(f"Headers: {headers}")
         logging.debug(f"Payload: {payload}")
 
@@ -116,7 +130,7 @@ def simulation():
         }
 
         response = requests.post(simulation_url, headers=headers, json=payload)
-        logging.info(f"Requisição de simulação enviada. Status Code: {response.status_code}")
+        logging.info(f"Requisição de simulação enviada. Código de status: {response.status_code}")
         logging.debug(f"Headers: {headers}")
         logging.debug(f"Payload: {payload}")
 
