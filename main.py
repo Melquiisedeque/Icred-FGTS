@@ -7,8 +7,7 @@ from flask import Flask, request, jsonify
 app = Flask(__name__)
 
 WEBHOOK_URL = "https://new-backend.botconversa.com.br/api/v1/webhooks-automation/catch/136922/ruhxOAwTgPFD/"
-
-TOKEN_FILE = "token.json"  # Arquivo para armazenar o token
+TOKEN_FILE = "token.json"  # Caminho para o arquivo que armazena o token
 
 
 def generate_token():
@@ -25,7 +24,7 @@ def generate_token():
     response = requests.post(url, headers=headers, data=data)
     if response.status_code == 200:
         token_data = response.json()
-        token_data["generated_at"] = time.time()
+        token_data["generated_at"] = time.time()  # Salvar o horário de geração do token como float (timestamp)
         with open(TOKEN_FILE, "w") as file:
             json.dump(token_data, file)
         return token_data["access_token"]
@@ -41,14 +40,17 @@ def get_token():
     with open(TOKEN_FILE, "r") as file:
         token_data = json.load(file)
 
-    if time.time() - token_data["generated_at"] >= token_data["expires_in"]:
+    expires_in = int(token_data.get("expires_in", 0))  # Garantir que 'expires_in' seja interpretado como inteiro
+    generated_at = float(token_data.get("generated_at", 0))  # Garantir que 'generated_at' seja float
+
+    if time.time() - generated_at >= expires_in:
         return generate_token()
 
     return token_data["access_token"]
 
 
 def send_webhook(data):
-    """Envia os dados para o webhook."""
+    """Envia os dados da simulação para o webhook."""
     response = requests.post(WEBHOOK_URL, json=data, headers={"Content-Type": "application/json"})
     if response.status_code == 200:
         print("Dados enviados para o webhook com sucesso.")
