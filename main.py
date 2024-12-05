@@ -3,6 +3,7 @@ import json
 import time
 import requests
 from flask import Flask, request, jsonify
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -24,7 +25,7 @@ def generate_token():
     response = requests.post(url, headers=headers, data=data)
     if response.status_code == 200:
         token_data = response.json()
-        token_data["generated_at"] = time.time()  # Salvar o horário de geração do token como float (timestamp)
+        token_data["generated_at"] = datetime.now().isoformat()  # Salvar a data como string ISO 8601
         with open(TOKEN_FILE, "w") as file:
             json.dump(token_data, file)
         return token_data["access_token"]
@@ -41,9 +42,10 @@ def get_token():
         token_data = json.load(file)
 
     expires_in = int(token_data.get("expires_in", 0))  # Garantir que 'expires_in' seja interpretado como inteiro
-    generated_at = float(token_data.get("generated_at", 0))  # Garantir que 'generated_at' seja float
+    generated_at = datetime.fromisoformat(token_data.get("generated_at"))  # Converter ISO 8601 para datetime
+    time_elapsed = (datetime.now() - generated_at).total_seconds()  # Calcular segundos decorridos
 
-    if time.time() - generated_at >= expires_in:
+    if time_elapsed >= expires_in:
         return generate_token()
 
     return token_data["access_token"]
